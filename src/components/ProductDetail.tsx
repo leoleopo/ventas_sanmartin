@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Product, productService, configService } from '../services/productService'
+import { Product, productService, configService, Config } from '../services/productService'
 import { orderService } from '../services/orderService'
 import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, Upload, CheckCircle, X } from 'lucide-react'
 
@@ -19,7 +19,7 @@ export default function ProductDetail({ product, onBack }: Props) {
   const [sending, setSending] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
-  const [config, setConfig] = useState<{whatsapp_numero: string, datos_bancarios: string} | null>(null)
+  const [config, setConfig] = useState<Config | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useState(() => {
@@ -65,6 +65,7 @@ export default function ProductDetail({ product, onBack }: Props) {
         apellido: apellido.trim(),
         telefono: '', // Removed from UI, sending empty
         notas: notas.trim(),
+        admin_notas: '', // Required by Order interface
         total,
         comprobante_url: comprobanteUrl,
         items: [{
