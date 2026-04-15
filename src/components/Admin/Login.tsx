@@ -27,9 +27,7 @@ export default function Login({ onLogin }: LoginProps) {
         <button className="primary" style={{ width: '100%' }} onClick={() => onLogin(password)}>
           Entrar
         </button>
-        <p style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          Contraseña inicial: admin123
-        </p>
+
       </div>
     </div>
   )
