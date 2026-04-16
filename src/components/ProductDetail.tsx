@@ -27,7 +27,9 @@ export default function ProductDetail({ product, onBack }: Props) {
   })
 
   const imagenes = product.imagenes?.length > 0 ? product.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
-  const cantidades = product.precios_bulk?.length > 0 ? product.precios_bulk.map(pb => pb.cantidad) : (product.cantidades || [6, 12, 18, 24])
+  const cantidades = (product.precios_bulk && product.precios_bulk.length > 0) 
+    ? product.precios_bulk.map(pb => pb.cantidad) 
+    : (product.cantidades || [6, 12, 18, 24])
   
   const getBulkPrice = (q: number) => {
     const promo = product.precios_bulk?.find(pb => pb.cantidad === q)
