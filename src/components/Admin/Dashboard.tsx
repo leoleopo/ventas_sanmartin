@@ -9,7 +9,7 @@ interface ProductForm {
   precio: string
   imagenes: string[]
   stock: string
-  cantidades: string
+  precios_bulk: { cantidad: number, precio_total: number }[]
 }
 
 const emptyForm: ProductForm = {
@@ -18,7 +18,10 @@ const emptyForm: ProductForm = {
   precio: '',
   imagenes: [],
   stock: '0',
-  cantidades: '6, 12, 18, 24'
+  precios_bulk: [
+    { cantidad: 6, precio_total: 0 },
+    { cantidad: 12, precio_total: 0 }
+  ]
 }
 
 export default function AdminDashboard() {
@@ -41,6 +44,7 @@ export default function AdminDashboard() {
   const [manualOrder, setManualOrder] = useState({
     cliente_nombre: '', apellido: '', telefono: '', producto_id: '', cantidad: 1, notas: ''
   })
+  const [filterProductId, setFilterProductId] = useState<string>('all')
   
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -164,7 +168,8 @@ export default function AdminDashboard() {
         imagenes: form.imagenes.length > 0 ? form.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600'],
         stock: parseInt(form.stock) || 0,
         activo: true,
-        cantidades: form.cantidades.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        cantidades: form.precios_bulk.map(pb => pb.cantidad).filter(c => c > 0),
+        precios_bulk: form.precios_bulk.filter(pb => pb.cantidad > 0)
       }
 
       if (editingId) {
@@ -247,7 +252,7 @@ export default function AdminDashboard() {
       precio: p.precio.toString(),
       imagenes: p.imagenes || [],
       stock: p.stock.toString(),
-      cantidades: (p.cantidades || [6, 12, 18, 24]).join(', ')
+      precios_bulk: p.precios_bulk?.length ? p.precios_bulk : (p.cantidades || [6, 12, 18, 24]).map(c => ({ cantidad: c, precio_total: c * p.precio }))
     })
     setEditingId(p.id)
     setError(null)
@@ -311,7 +316,37 @@ export default function AdminDashboard() {
       {tab === 'orders' && (
         <div style={{ display: 'grid', gap: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <h2 style={{ fontSize: '1.2rem' }}>Lista de Pedidos</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <h2 style={{ fontSize: '1.2rem' }}>Lista de Pedidos</h2>
+              <select 
+                value={filterProductId} 
+                onChange={(e) => setFilterProductId(e.target.value)}
+                className="glass"
+                style={{ 
+                  padding: '0.4rem 2rem 0.4rem 0.8rem', 
+                  fontSize: '0.85rem', 
+                  borderRadius: '99px', 
+                  border: '1px solid var(--glass-border)', 
+                  background: 'var(--surface)',
+                  fontWeight: '700',
+                  color: 'var(--primary)',
+                  cursor: 'pointer',
+                  appearance: 'none',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B2FA0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.7rem center',
+                  boxShadow: 'var(--shadow)'
+                }}
+              >
+                <option value="all">Todos los productos ({orders.length})</option>
+                {products.map(p => {
+                  const count = orders.filter(o => o.items?.some((item: any) => item.producto_id === p.id)).length;
+                  return (
+                    <option key={p.id} value={p.id}>{p.nombre} ({count})</option>
+                  );
+                })}
+              </select>
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button 
                 onClick={() => setShowManualOrderForm(true)}
@@ -332,7 +367,22 @@ export default function AdminDashboard() {
             </div>
           </div>
           {orders.length === 0 && <div className="empty-state"><ShoppingBag size={48} /><p>No hay pedidos aún</p></div>}
-          {orders.map(order => (
+          {orders.length > 0 && orders.filter(order => {
+            if (filterProductId === 'all') return true
+            return order.items?.some((item: any) => item.producto_id === filterProductId)
+          }).length === 0 && (
+            <div className="empty-state" style={{ padding: '4rem 1rem' }}>
+              <AlertCircle size={48} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+              <p>No hay pedidos para este producto</p>
+              <button onClick={() => setFilterProductId('all')} className="btn-view" style={{ width: 'auto', marginTop: '1rem', padding: '0.5rem 1rem' }}>Ver todos</button>
+            </div>
+          )}
+          {orders
+            .filter(order => {
+              if (filterProductId === 'all') return true
+              return order.items?.some((item: any) => item.producto_id === filterProductId)
+            })
+            .map(order => (
             <div key={order.id} className="glass order-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -503,15 +553,59 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Cantidades predefinidas (separadas por coma)</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ej: 6, 12, 18, 24"
-                    value={form.cantidades}
-                    onChange={(e) => setForm({ ...form, cantidades: e.target.value })}
-                  />
-                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Ejemplo: 12, 24, 36</small>
+                <div className="form-group" style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: 'var(--radius)' }}>
+                  <label style={{ color: 'var(--primary)', marginBottom: '0.75rem', fontSize: '0.95rem' }}>Cantidades y Precios (Promociones)</label>
+                  
+                  {form.precios_bulk.map((pb, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cantidad</span>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={pb.cantidad || ''} 
+                          onChange={(e) => {
+                            const newBulk = [...form.precios_bulk]
+                            newBulk[idx].cantidad = parseInt(e.target.value) || 0
+                            setForm({ ...form, precios_bulk: newBulk })
+                          }} 
+                          style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Precio Total ($)</span>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          value={pb.precio_total || ''} 
+                          onChange={(e) => {
+                            const newBulk = [...form.precios_bulk]
+                            newBulk[idx].precio_total = parseFloat(e.target.value) || 0
+                            setForm({ ...form, precios_bulk: newBulk })
+                          }} 
+                          style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <button 
+                        className="delete-btn" 
+                        style={{ alignSelf: 'flex-end', height: '36px', width: '36px', padding: 0 }}
+                        onClick={() => {
+                          setForm({ ...form, precios_bulk: form.precios_bulk.filter((_, i) => i !== idx) })
+                        }}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  <button 
+                    style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.5rem' }}
+                    onClick={() => setForm({ ...form, precios_bulk: [...form.precios_bulk, { cantidad: 0, precio_total: 0 }] })}
+                  >
+                    <Plus size={16} /> Agregar opción de cantidad
+                  </button>
+                  <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                    Si un cliente elige una cantidad que está en esta lista, se le cobrará el Precio Total exacto que definas aquí.
+                  </small>
                 </div>
 
                 <div className="form-group">

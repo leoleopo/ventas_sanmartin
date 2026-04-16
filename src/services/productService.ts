@@ -9,6 +9,7 @@ export interface Product {
   stock: number
   activo: boolean
   cantidades: number[]
+  precios_bulk?: { cantidad: number, precio_total: number }[]
 }
 
 export interface Config {

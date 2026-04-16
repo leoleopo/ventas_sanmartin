@@ -27,8 +27,14 @@ export default function ProductDetail({ product, onBack }: Props) {
   })
 
   const imagenes = product.imagenes?.length > 0 ? product.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
-  const cantidades = product.cantidades || [6, 12, 18, 24]
-  const total = qty * product.precio
+  const cantidades = product.precios_bulk?.length > 0 ? product.precios_bulk.map(pb => pb.cantidad) : (product.cantidades || [6, 12, 18, 24])
+  
+  const getBulkPrice = (q: number) => {
+    const promo = product.precios_bulk?.find(pb => pb.cantidad === q)
+    return promo ? promo.precio_total : q * product.precio
+  }
+  
+  const total = getBulkPrice(qty)
 
   const handleComprobanteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -174,7 +180,10 @@ export default function ProductDetail({ product, onBack }: Props) {
               <div className="quantity-selector">
                 {cantidades.map(q => (
                   <button key={q} className={`q-btn ${qty === q ? 'active' : ''}`} onClick={() => setQty(q)}>
-                    {q}
+                    {q} un.
+                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'normal', color: qty === q ? 'inherit' : 'var(--text-muted)' }}>
+                      ${getBulkPrice(q).toLocaleString()}
+                    </span>
                   </button>
                 ))}
               </div>
