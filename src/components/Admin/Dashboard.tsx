@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { orderService, Order } from '../../services/orderService'
 import { productService, Product } from '../../services/productService'
-import { CheckCircle, Clock, Package, Plus, Trash2, X, ShoppingBag, AlertCircle, Upload, ChevronLeft, ChevronRight, Image as ImageIcon, Phone, Settings } from 'lucide-react'
+import { CheckCircle, Clock, Package, Plus, Trash2, X, ShoppingBag, AlertCircle, Upload, ChevronLeft, ChevronRight, Image as ImageIcon, Phone, Settings, Eye, EyeOff } from 'lucide-react'
 
 interface ProductForm {
   nombre: string
@@ -13,6 +13,7 @@ interface ProductForm {
   whatsapp_numero: string
   datos_bancarios: string
   notas_placeholder: string
+  activo: boolean
 }
 
 const emptyForm: ProductForm = {
@@ -27,7 +28,8 @@ const emptyForm: ProductForm = {
   ],
   whatsapp_numero: '',
   datos_bancarios: '',
-  notas_placeholder: ''
+  notas_placeholder: '',
+  activo: true
 }
 
 export default function AdminDashboard() {
@@ -60,7 +62,7 @@ export default function AdminDashboard() {
     try {
       const [o, p] = await Promise.all([
         orderService.getAll(), 
-        productService.getAll()
+        productService.getAll(true)
       ])
       setOrders(o)
       setProducts(p)
@@ -190,7 +192,7 @@ export default function AdminDashboard() {
         precio: parseFloat(form.precio),
         imagenes: form.imagenes.length > 0 ? form.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600'],
         stock: parseInt(form.stock) || 0,
-        activo: true,
+        activo: form.activo,
         cantidades: form.precios_bulk.map(pb => pb.cantidad).filter(c => c > 0),
         precios_bulk: form.precios_bulk.filter(pb => pb.cantidad > 0),
         whatsapp_numero: form.whatsapp_numero.trim(),
@@ -269,7 +271,8 @@ export default function AdminDashboard() {
       precios_bulk: p.precios_bulk?.length ? p.precios_bulk : (p.cantidades || [6, 12, 18, 24]).map(c => ({ cantidad: c, precio_total: c * p.precio })),
       whatsapp_numero: p.whatsapp_numero || '',
       datos_bancarios: p.datos_bancarios || '',
-      notas_placeholder: p.notas_placeholder || ''
+      notas_placeholder: p.notas_placeholder || '',
+      activo: p.activo
     })
     setEditingId(p.id)
     setError(null)
@@ -295,6 +298,16 @@ export default function AdminDashboard() {
       setError(err.message || 'Error al eliminar producto')
     } finally {
       setDeleting(null)
+    }
+  }
+
+  const handleToggleActiveProduct = async (id: string, currentStatus: boolean) => {
+    setError(null)
+    try {
+      await productService.updateProduct(id, { activo: !currentStatus })
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, activo: !currentStatus } : p))
+    } catch (err: any) {
+      setError(err.message || 'Error al actualizar estado del producto')
     }
   }
 
@@ -697,7 +710,7 @@ export default function AdminDashboard() {
           )}
 
           <div className="grid">
-            {products.map(p => <ProductCard p={p} key={p.id} onEdit={openEditModal} onDelete={handleDeleteProduct} deleting={deleting} />)}
+            {products.map(p => <ProductCard p={p} key={p.id} onEdit={openEditModal} onDelete={handleDeleteProduct} onToggleActive={handleToggleActiveProduct} deleting={deleting} />)}
             <button className="add-product-card" onClick={() => setShowForm(true)}><Plus size={36} /><p>Nuevo Producto</p></button>
           </div>
         </>
@@ -706,14 +719,19 @@ export default function AdminDashboard() {
   )
 }
 
-function ProductCard({ p, onEdit, onDelete, deleting }: { p: Product, onEdit: (p: Product) => void, onDelete: (id: string) => void, deleting: string | null }) {
+function ProductCard({ p, onEdit, onDelete, onToggleActive, deleting }: { p: Product, onEdit: (p: Product) => void, onDelete: (id: string) => void, onToggleActive: (id: string, activo: boolean) => void, deleting: string | null }) {
   const [currentImg, setCurrentImg] = useState(0)
   const imagenes = p.imagenes && p.imagenes.length > 0 ? p.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
 
   return (
-    <div className="glass product-card-admin">
+    <div className={`glass product-card-admin ${!p.activo ? 'paused' : ''}`} style={{ opacity: p.activo ? 1 : 0.6, position: 'relative' }}>
       <div style={{ position: 'relative', height: '160px' }}>
         <img src={imagenes[currentImg]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} />
+        {!p.activo && (
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold' }}>
+            PAUSADO
+          </div>
+        )}
         {imagenes.length > 1 && (
           <div className="carousel-dots">
             {imagenes.map((_, i) => <div key={i} className={`dot ${i === currentImg ? 'active' : ''}`} />)}
@@ -722,9 +740,12 @@ function ProductCard({ p, onEdit, onDelete, deleting }: { p: Product, onEdit: (p
       </div>
       <h4 style={{ marginTop: '0.75rem' }}>{p.nombre}</h4>
       <p style={{ fontWeight: 'bold', color: 'var(--primary)' }}>${p.precio.toLocaleString()}</p>
-      <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
-        <button className="icon-btn" onClick={() => onEdit(p)} style={{ flex: 1, background: 'var(--primary-light)' }}><ImageIcon size={16} /> Editar</button>
-        <button className="delete-btn" onClick={() => onDelete(p.id)} disabled={deleting === p.id} style={{ flex: 1 }}><Trash2 size={16} /></button>
+      <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button className="icon-btn" onClick={() => onEdit(p)} style={{ flex: '1 1 45%', background: 'var(--primary-light)' }}><ImageIcon size={16} /> Editar</button>
+        <button className="icon-btn" onClick={() => onToggleActive(p.id, p.activo)} style={{ flex: '1 1 45%', background: p.activo ? 'rgba(212, 68, 42, 0.1)' : 'rgba(37, 211, 102, 0.1)', color: p.activo ? '#D4442A' : '#25D366' }}>
+          {p.activo ? <><EyeOff size={16} /> Pausar</> : <><Eye size={16} /> Activar</>}
+        </button>
+        <button className="delete-btn" onClick={() => onDelete(p.id)} disabled={deleting === p.id} style={{ flex: '1 1 100%' }}><Trash2 size={16} /> Eliminar</button>
       </div>
     </div>
   )

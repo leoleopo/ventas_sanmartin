@@ -16,13 +16,14 @@ export interface Product {
 }
 
 export const productService = {
-  async getAll() {
-    const { data, error } = await supabase
-      .from('productos')
-      .select('*')
-      .eq('activo', true)
-      .order('nombre')
+  async getAll(includeInactive = false) {
+    let query = supabase.from('productos').select('*').order('nombre')
     
+    if (!includeInactive) {
+      query = query.eq('activo', true)
+    }
+    
+    const { data, error } = await query
     if (error) throw error
     return data as Product[]
   },
