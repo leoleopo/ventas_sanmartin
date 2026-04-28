@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Product, productService, configService, Config } from '../services/productService'
+import { Product, productService } from '../services/productService'
 import { orderService } from '../services/orderService'
 import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, Upload, CheckCircle, X } from 'lucide-react'
 
@@ -19,12 +19,7 @@ export default function ProductDetail({ product, onBack }: Props) {
   const [sending, setSending] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
-  const [config, setConfig] = useState<Config | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-
-  useState(() => {
-    configService.getConfig().then(setConfig)
-  })
 
   const imagenes = product.imagenes?.length > 0 ? product.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
   const cantidades = (product.precios_bulk && product.precios_bulk.length > 0) 
@@ -95,7 +90,8 @@ export default function ProductDetail({ product, onBack }: Props) {
         `\n_Comprobante adjuntado en el sistema._`
       )
       
-      window.open(`https://wa.me/${config?.whatsapp_numero}?text=${message}`, '_blank')
+      const whatsapp = product.whatsapp_numero || ''
+      window.open(`https://wa.me/${whatsapp}?text=${message}`, '_blank')
       setSuccess(true)
     } catch (err: any) {
       setError(err.message || 'Error al procesar el pedido')
@@ -197,13 +193,13 @@ export default function ProductDetail({ product, onBack }: Props) {
               </div>
             )}
 
-            {config?.datos_bancarios && (
+            {product.datos_bancarios && (
               <div className="bank-details-box" style={{ background: 'var(--accent-soft)', padding: '1rem', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem' }}>
                 <h4 style={{ color: 'var(--primary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   Datos para Transferencia
                 </h4>
                 <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text)' }}>
-                  {config.datos_bancarios}
+                  {product.datos_bancarios}
                 </div>
               </div>
             )}
@@ -232,7 +228,7 @@ export default function ProductDetail({ product, onBack }: Props) {
             <div className="form-group">
               <label>Notas (opcional)</label>
               <textarea 
-                placeholder={config?.notas_placeholder || "Talle, color, horario de entrega..."} 
+                placeholder={product.notas_placeholder || "Talle, color, horario de entrega..."} 
                 value={notas} 
                 onChange={e => setNotas(e.target.value)} 
                 rows={2} 

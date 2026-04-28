@@ -65,13 +65,51 @@ export const orderService = {
     return data[0]
   },
 
-  async deleteAllOrders() {
-    const { error } = await supabase
-      .from('pedidos')
-      .delete()
-      .gte('created_at', '1970-01-01') // Standard way to target all rows in Supabase
+  async deleteOrder(id: string) {
+    const { data: order } = await supabase.from('pedidos').select('comprobante_url').eq('id', id).single()
     
+    if (order?.comprobante_url && !order.comprobante_url.includes('Pedido Manual')) {
+      const fileName = order.comprobante_url.split('/').pop()
+      if (fileName) {
+        await supabase.storage.from('comprobantes').remove([fileName])
+      }
+    }
+
+    const { error } = await supabase.from('pedidos').delete().eq('id', id)
     if (error) throw error
+  },
+
+  async deleteAllOrders(productId?: string) {
+    let query = supabase.from('pedidos').select('id, comprobante_url, items')
+    const { data: orders } = await query
+    
+    let ordersToDelete = orders || []
+    
+    if (productId) {
+      ordersToDelete = ordersToDelete.filter(o => 
+        o.items && Array.isArray(o.items) && o.items.some((item: any) => item.producto_id === productId)
+      )
+    }
+
+    if (ordersToDelete.length > 0) {
+      const fileNames = ordersToDelete
+        .filter(o => o.comprobante_url && !o.comprobante_url.includes('Pedido Manual'))
+        .map(o => o.comprobante_url.split('/').pop())
+        .filter(Boolean) as string[]
+      
+      if (fileNames.length > 0) {
+        // Break into chunks of 100 for storage.remove
+        for (let i = 0; i < fileNames.length; i += 100) {
+          await supabase.storage.from('comprobantes').remove(fileNames.slice(i, i + 100))
+        }
+      }
+
+      const idsToDelete = ordersToDelete.map(o => o.id)
+      for (let i = 0; i < idsToDelete.length; i += 100) {
+        const chunk = idsToDelete.slice(i, i + 100)
+        await supabase.from('pedidos').delete().in('id', chunk)
+      }
+    }
   },
 
   async uploadComprobante(file: File) {

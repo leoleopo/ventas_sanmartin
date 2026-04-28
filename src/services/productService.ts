@@ -10,12 +10,9 @@ export interface Product {
   activo: boolean
   cantidades: number[]
   precios_bulk?: { cantidad: number, precio_total: number }[]
-}
-
-export interface Config {
-  whatsapp_numero: string
-  datos_bancarios: string
-  notas_placeholder: string
+  whatsapp_numero?: string
+  datos_bancarios?: string
+  notas_placeholder?: string
 }
 
 export const productService = {
@@ -79,24 +76,3 @@ export const productService = {
   }
 }
 
-export const configService = {
-  async getConfig(): Promise<Config> {
-    const { data, error } = await supabase
-      .from('configuracion')
-      .select('whatsapp_numero, datos_bancarios, notas_placeholder')
-      .eq('id', 'global')
-      .single()
-    
-    if (error) throw error
-    return data
-  },
-
-  async updateConfig(whatsapp_numero: string, datos_bancarios: string, notas_placeholder: string) {
-    const { error } = await supabase
-      .from('configuracion')
-      .update({ whatsapp_numero, datos_bancarios, notas_placeholder, updated_at: new Date() })
-      .eq('id', 'global')
-    
-    if (error) throw error
-  }
-}

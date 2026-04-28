@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Product, productService, configService } from '../services/productService'
+import { Product, productService } from '../services/productService'
 import { ShoppingBag, ChevronLeft, ChevronRight, MessageCircle, Eye } from 'lucide-react'
 
 interface CatalogProps {

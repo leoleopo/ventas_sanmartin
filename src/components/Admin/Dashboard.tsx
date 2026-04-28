@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { orderService, Order } from '../../services/orderService'
-import { productService, Product, configService } from '../../services/productService'
+import { productService, Product } from '../../services/productService'
 import { CheckCircle, Clock, Package, Plus, Trash2, X, ShoppingBag, AlertCircle, Upload, ChevronLeft, ChevronRight, Image as ImageIcon, Phone, Settings } from 'lucide-react'
 
 interface ProductForm {
@@ -10,6 +10,9 @@ interface ProductForm {
   imagenes: string[]
   stock: string
   precios_bulk: { cantidad: number, precio_total: number }[]
+  whatsapp_numero: string
+  datos_bancarios: string
+  notas_placeholder: string
 }
 
 const emptyForm: ProductForm = {
@@ -21,16 +24,16 @@ const emptyForm: ProductForm = {
   precios_bulk: [
     { cantidad: 6, precio_total: 0 },
     { cantidad: 12, precio_total: 0 }
-  ]
+  ],
+  whatsapp_numero: '',
+  datos_bancarios: '',
+  notas_placeholder: ''
 }
 
 export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [whatsapp, setWhatsapp] = useState('')
-  const [datosBancarios, setDatosBancarios] = useState('')
-  const [notasPlaceholder, setNotasPlaceholder] = useState('')
-  const [tab, setTab] = useState<'orders' | 'products' | 'config'>('orders')
+  const [tab, setTab] = useState<'orders' | 'products'>('orders')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<ProductForm>(emptyForm)
@@ -55,16 +58,12 @@ export default function AdminDashboard() {
   const refreshData = async (showLoading = true) => {
     if (showLoading) setLoading(true)
     try {
-      const [o, p, c] = await Promise.all([
+      const [o, p] = await Promise.all([
         orderService.getAll(), 
-        productService.getAll(),
-        configService.getConfig()
+        productService.getAll()
       ])
       setOrders(o)
       setProducts(p)
-      setWhatsapp(c.whatsapp_numero || '')
-      setDatosBancarios(c.datos_bancarios || '')
-      setNotasPlaceholder(c.notas_placeholder || '')
     } catch (err: any) {
       setError(err.message || 'Error al cargar datos')
     } finally {
@@ -108,13 +107,37 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleDeleteOrder = async (id: string) => {
+    if (!confirm('🚨 ¿Estás seguro de que querés borrar este pedido?')) return
+    
+    setUpdatingOrders(prev => new Set(prev).add(id))
+    setError(null)
+    try {
+      await orderService.deleteOrder(id)
+      await refreshData(false)
+    } catch (err: any) {
+      setError(err.message || 'Error al eliminar el pedido')
+    } finally {
+      setUpdatingOrders(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
   const handleDeleteAllOrders = async () => {
-    if (!confirm('🚨 ¿Estás SEGURO de que querés borrar TODOS los pedidos? Esta acción no se puede deshacer.')) return
+    const isFiltered = filterProductId !== 'all'
+    const msg = isFiltered 
+      ? '🚨 ¿Estás SEGURO de que querés borrar TODOS los pedidos DEL PRODUCTO SELECCIONADO? Esta acción no se puede deshacer.'
+      : '🚨 ¿Estás SEGURO de que querés borrar TODOS los pedidos? Esta acción no se puede deshacer.'
+    
+    if (!confirm(msg)) return
     
     setLoading(true)
     setError(null)
     try {
-      await orderService.deleteAllOrders()
+      await orderService.deleteAllOrders(isFiltered ? filterProductId : undefined)
       await refreshData()
     } catch (err: any) {
       setError(err.message || 'Error al eliminar pedidos')
@@ -169,7 +192,10 @@ export default function AdminDashboard() {
         stock: parseInt(form.stock) || 0,
         activo: true,
         cantidades: form.precios_bulk.map(pb => pb.cantidad).filter(c => c > 0),
-        precios_bulk: form.precios_bulk.filter(pb => pb.cantidad > 0)
+        precios_bulk: form.precios_bulk.filter(pb => pb.cantidad > 0),
+        whatsapp_numero: form.whatsapp_numero.trim(),
+        datos_bancarios: form.datos_bancarios.trim(),
+        notas_placeholder: form.notas_placeholder.trim()
       }
 
       if (editingId) {
@@ -182,18 +208,6 @@ export default function AdminDashboard() {
       await refreshData()
     } catch (err: any) {
       setError(err.message || `Error al ${editingId ? 'editar' : 'agregar'} producto`)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleSaveConfig = async () => {
-    setSaving(true)
-    try {
-      await configService.updateConfig(whatsapp, datosBancarios, notasPlaceholder)
-      alert('Configuración guardada')
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar configuración')
     } finally {
       setSaving(false)
     }
@@ -252,7 +266,10 @@ export default function AdminDashboard() {
       precio: p.precio.toString(),
       imagenes: p.imagenes || [],
       stock: p.stock.toString(),
-      precios_bulk: p.precios_bulk?.length ? p.precios_bulk : (p.cantidades || [6, 12, 18, 24]).map(c => ({ cantidad: c, precio_total: c * p.precio }))
+      precios_bulk: p.precios_bulk?.length ? p.precios_bulk : (p.cantidades || [6, 12, 18, 24]).map(c => ({ cantidad: c, precio_total: c * p.precio })),
+      whatsapp_numero: p.whatsapp_numero || '',
+      datos_bancarios: p.datos_bancarios || '',
+      notas_placeholder: p.notas_placeholder || ''
     })
     setEditingId(p.id)
     setError(null)
@@ -308,9 +325,6 @@ export default function AdminDashboard() {
         <button onClick={() => setTab('products')} className={`admin-tab ${tab === 'products' ? 'active' : ''}`}>
           <Package size={18} /> Productos
         </button>
-        <button onClick={() => setTab('config')} className={`admin-tab ${tab === 'config' ? 'active' : ''}`}>
-          <Settings size={18} /> Config
-        </button>
       </div>
 
       {tab === 'orders' && (
@@ -361,7 +375,7 @@ export default function AdminDashboard() {
                   className="delete-btn"
                   style={{ background: 'rgba(212, 68, 42, 0.1)', color: '#D4442A', border: '1px solid rgba(212,68,42,0.2)', padding: '0.5rem 1rem', width: 'auto' }}
                 >
-                  <Trash2 size={16} /> Borrar Todo
+                  <Trash2 size={16} /> {filterProductId === 'all' ? 'Borrar Todo' : 'Borrar Filtrados'}
                 </button>
               )}
             </div>
@@ -383,8 +397,17 @@ export default function AdminDashboard() {
               return order.items?.some((item: any) => item.producto_id === filterProductId)
             })
             .map(order => (
-            <div key={order.id} className="glass order-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={order.id} className="glass order-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem', position: 'relative' }}>
+              <button 
+                onClick={() => handleDeleteOrder(order.id)} 
+                className="delete-btn" 
+                disabled={updatingOrders.has(order.id)}
+                style={{ position: 'absolute', top: '1rem', right: '1rem', width: '32px', height: '32px', padding: 0 }}
+                title="Eliminar pedido"
+              >
+                <Trash2 size={16} />
+              </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '40px' }}>
                 <div>
                   <h3 style={{ color: 'var(--primary)' }}>{order.cliente_nombre} {order.apellido}</h3>
                   {order.telefono && (
@@ -520,8 +543,8 @@ export default function AdminDashboard() {
       {tab === 'products' && (
         <>
           {showForm && (
-            <div className="modal-overlay" onClick={closeModal}>
-              <div className="modal glass" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="modal-overlay" onClick={closeModal} style={{ padding: '2rem 1rem' }}>
+              <div className="modal glass" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
                 <div className="modal-header">
                   <h3>{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>
                   <button onClick={closeModal} className="icon-btn"><X size={20} /></button>
@@ -608,7 +631,48 @@ export default function AdminDashboard() {
                   </small>
                 </div>
 
-                <div className="form-group">
+                <div className="form-group" style={{ background: 'rgba(0,0,0,0.02)', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid var(--glass-border)', marginTop: '1rem' }}>
+                  <label style={{ color: 'var(--primary)', marginBottom: '0.75rem', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Settings size={18} /> Configuración Específica del Producto
+                  </label>
+                  
+                  <div className="form-group" style={{ marginTop: '0.5rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Phone size={14} /> Número de WhatsApp
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej: 5491162426916"
+                      value={form.whatsapp_numero}
+                      onChange={(e) => setForm({ ...form, whatsapp_numero: e.target.value })}
+                    />
+                    <small style={{ color: 'var(--text-muted)' }}>Incluir código de país y área sin símbolos (ej: 549...)</small>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label>Datos Bancarios de Transferencia</label>
+                    <textarea 
+                      placeholder="Ej: ALIAS: mipanaderia.mp&#10;CBU: 0000000000000000"
+                      value={form.datos_bancarios}
+                      onChange={(e) => setForm({ ...form, datos_bancarios: e.target.value })}
+                      rows={3}
+                    />
+                    <small style={{ color: 'var(--text-muted)' }}>Esta información la verán los clientes antes de subir el comprobante.</small>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label>Texto de sugerencia en Notas (Placeholder)</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej: Talle, color, horario de entrega..."
+                      value={form.notas_placeholder}
+                      onChange={(e) => setForm({ ...form, notas_placeholder: e.target.value })}
+                    />
+                    <small style={{ color: 'var(--text-muted)' }}>Aparecerá en gris claro en la caja de Notas del pedido.</small>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '1rem' }}>
                   <label>Imágenes</label>
                   <div className="image-upload-area" onClick={() => fileInputRef.current?.click()}>
                     <Upload size={24} />
@@ -625,7 +689,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <button className="primary" style={{ width: '100%' }} onClick={handleSubmitProduct} disabled={saving || uploading}>
+                <button className="primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handleSubmitProduct} disabled={saving || uploading}>
                   {saving ? 'Guardando...' : 'Guardar Producto'}
                 </button>
               </div>
@@ -637,53 +701,6 @@ export default function AdminDashboard() {
             <button className="add-product-card" onClick={() => setShowForm(true)}><Plus size={36} /><p>Nuevo Producto</p></button>
           </div>
         </>
-      )}
-
-      {tab === 'config' && (
-        <div className="glass" style={{ padding: '2rem', maxWidth: '500px', margin: '0 auto' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            <Settings size={20} /> Configuración Global
-          </h3>
-          
-          <div className="form-group">
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Phone size={16} /> Número de WhatsApp
-            </label>
-            <input 
-              type="text" 
-              placeholder="Ej: 5491162426916"
-              value={whatsapp}
-              onChange={(e) => setWhatsapp(e.target.value)}
-            />
-            <small style={{ color: 'var(--text-muted)' }}>Incluir código de país y área sin símbolos (ej: 549...)</small>
-          </div>
-
-          <div className="form-group" style={{ marginTop: '1.5rem' }}>
-            <label>Datos Bancarios de Transferencia</label>
-            <textarea 
-              placeholder="Ej: ALIAS: mipanaderia.mp&#10;CBU: 0000000000000000"
-              value={datosBancarios}
-              onChange={(e) => setDatosBancarios(e.target.value)}
-              rows={4}
-            />
-            <small style={{ color: 'var(--text-muted)' }}>Esta información la verán los clientes antes de subir el comprobante.</small>
-          </div>
-
-          <div className="form-group" style={{ marginTop: '1.5rem' }}>
-            <label>Texto de sugerencia en Notas (Placeholder)</label>
-            <input 
-              type="text" 
-              placeholder="Ej: Talle, color, horario de entrega..."
-              value={notasPlaceholder}
-              onChange={(e) => setNotasPlaceholder(e.target.value)}
-            />
-            <small style={{ color: 'var(--text-muted)' }}>Esto aparecerá en gris claro en la caja de Notas del formulario de pedido.</small>
-          </div>
-
-          <button className="primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handleSaveConfig} disabled={saving}>
-            {saving ? 'Guardando...' : 'Guardar Cambios'}
-          </button>
-        </div>
       )}
     </div>
   )
