@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Product, productService } from '../services/productService'
 import { orderService } from '../services/orderService'
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, Upload, CheckCircle, X, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, Upload, CheckCircle, X, Plus, Minus, Trash2 } from 'lucide-react'
 
 interface Props {
   product: Product
@@ -11,7 +11,7 @@ interface Props {
 interface PedidoItem {
   descripcion: string
   valor: number
-  cantidad: number
+  cantidad: number | ''
   checked?: boolean
 }
 
@@ -45,7 +45,7 @@ export default function ProductDetail({ product, onBack }: Props) {
     ? product.precios_bulk.map(pb => pb.cantidad)
     : (product.cantidades || [6, 12, 18, 24])
 
-  const [qty, setQty] = useState(() => {
+  const [qty, setQty] = useState<number | ''>(() => {
     return cantidades[0] || 6
   })
 
@@ -55,8 +55,8 @@ export default function ProductDetail({ product, onBack }: Props) {
   }
 
   const total = product.es_multiple
-    ? items.reduce((sum, item) => sum + (item.checked ? item.valor * item.cantidad : 0), 0)
-    : getBulkPrice(qty)
+    ? items.reduce((sum, item) => sum + (item.checked ? item.valor * (Number(item.cantidad) || 0) : 0), 0)
+    : getBulkPrice(Number(qty) || 0)
 
   const imagenes = product.imagenes?.length > 0 ? product.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
 
@@ -97,8 +97,18 @@ export default function ProductDetail({ product, onBack }: Props) {
     }
 
     const validItems = product.es_multiple
-      ? items.filter(item => item.checked && item.cantidad > 0)
-      : [{ descripcion: product.nombre, valor: getBulkPrice(qty) / qty, cantidad: qty }]
+      ? items
+          .filter(item => item.checked && (Number(item.cantidad) || 0) > 0)
+          .map(item => ({
+            descripcion: item.descripcion,
+            valor: item.valor,
+            cantidad: Number(item.cantidad) || 1
+          }))
+      : [{
+          descripcion: product.nombre,
+          valor: getBulkPrice(Number(qty) || 1) / (Number(qty) || 1),
+          cantidad: Number(qty) || 1
+        }]
 
     if (validItems.length === 0) {
       setError(product.es_multiple ? 'Seleccioná al menos un artículo de la lista' : 'La cantidad debe ser mayor a 0')
@@ -272,22 +282,61 @@ export default function ProductDetail({ product, onBack }: Props) {
                       </span>
                       
                       <div className="checklist-qty-container">
-                        <input 
-                          type="number" 
-                          min="1" 
-                          className="checklist-qty-input"
-                          value={item.cantidad}
-                          disabled={!item.checked}
-                          onChange={(e) => {
-                            const newItems = [...items]
-                            newItems[idx].cantidad = Math.max(1, parseInt(e.target.value) || 1)
-                            setItems(newItems)
-                          }}
-                        />
+                        <div className={`quantity-counter ${!item.checked ? 'disabled' : ''}`}>
+                          <button
+                            type="button"
+                            className="counter-btn"
+                            disabled={!item.checked || (Number(item.cantidad) || 1) <= 1}
+                            onClick={() => {
+                              const newItems = [...items]
+                              newItems[idx].cantidad = Math.max(1, (Number(item.cantidad) || 1) - 1)
+                              setItems(newItems)
+                            }}
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            className="counter-qty-input"
+                            value={item.cantidad}
+                            disabled={!item.checked}
+                            onChange={(e) => {
+                              const valStr = e.target.value
+                              const newItems = [...items]
+                              if (valStr === '') {
+                                newItems[idx].cantidad = ''
+                              } else {
+                                const parsed = parseInt(valStr)
+                                newItems[idx].cantidad = isNaN(parsed) ? 1 : parsed
+                              }
+                              setItems(newItems)
+                            }}
+                            onBlur={(e) => {
+                              const valStr = e.target.value
+                              const parsed = parseInt(valStr) || 1
+                              const newItems = [...items]
+                              newItems[idx].cantidad = Math.max(1, parsed)
+                              setItems(newItems)
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="counter-btn"
+                            disabled={!item.checked}
+                            onClick={() => {
+                              const newItems = [...items]
+                              newItems[idx].cantidad = (Number(item.cantidad) || 0) + 1
+                              setItems(newItems)
+                            }}
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
                       </div>
                       
                       <span className="checklist-total">
-                        ${(item.valor * item.cantidad).toLocaleString()}
+                        ${(item.valor * (Number(item.cantidad) || 0)).toLocaleString()}
                       </span>
                     </div>
                   ))}
@@ -321,14 +370,44 @@ export default function ProductDetail({ product, onBack }: Props) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Otra cantidad:</span>
-                  <input
-                    type="number"
-                    min="1"
-                    className="checklist-qty-input"
-                    value={qty}
-                    onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
-                    style={{ width: '5.5rem' }}
-                  />
+                  <div className="quantity-counter" style={{ height: '36px' }}>
+                    <button
+                      type="button"
+                      className="counter-btn"
+                      disabled={(Number(qty) || 1) <= 1}
+                      onClick={() => setQty(Math.max(1, (Number(qty) || 1) - 1))}
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      className="counter-qty-input"
+                      value={qty}
+                      onChange={(e) => {
+                        const valStr = e.target.value
+                        if (valStr === '') {
+                          setQty('')
+                        } else {
+                          const parsed = parseInt(valStr)
+                          setQty(isNaN(parsed) ? 1 : parsed)
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const valStr = e.target.value
+                        const parsed = parseInt(valStr) || 1
+                        setQty(Math.max(1, parsed))
+                      }}
+                      style={{ width: '3rem' }}
+                    />
+                    <button
+                      type="button"
+                      className="counter-btn"
+                      onClick={() => setQty((Number(qty) || 0) + 1)}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
