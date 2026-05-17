@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { orderService, Order } from '../../services/orderService'
 import { productService, Product } from '../../services/productService'
-import { CheckCircle, Clock, Package, Plus, Trash2, X, ShoppingBag, AlertCircle, Upload, ChevronLeft, ChevronRight, Image as ImageIcon, Phone, Settings, Eye, EyeOff } from 'lucide-react'
+import { CheckCircle, Clock, Package, Plus, Trash2, X, ShoppingBag, AlertCircle, Upload, ChevronLeft, ChevronRight, Image as ImageIcon, Phone, Settings, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react'
 
 interface ProductForm {
   nombre: string
@@ -182,6 +182,20 @@ export default function AdminDashboard() {
       ...prev,
       imagenes: prev.imagenes.filter((_, i) => i !== index)
     }))
+  }
+
+  const moveItem = (index: number, direction: 'up' | 'down') => {
+    const newItems = [...form.items_multiples]
+    if (direction === 'up' && index > 0) {
+      const temp = newItems[index]
+      newItems[index] = newItems[index - 1]
+      newItems[index - 1] = temp
+    } else if (direction === 'down' && index < newItems.length - 1) {
+      const temp = newItems[index]
+      newItems[index] = newItems[index + 1]
+      newItems[index + 1] = temp
+    }
+    setForm(prev => ({ ...prev, items_multiples: newItems }))
   }
 
   const handleSubmitProduct = async () => {
@@ -750,7 +764,55 @@ export default function AdminDashboard() {
                             style={{ padding: '0.4rem', fontSize: '0.85rem' }}
                           />
                         </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignSelf: 'flex-end', height: '36px' }}>
+                          <button
+                            type="button"
+                            onClick={() => moveItem(idx, 'up')}
+                            disabled={idx === 0}
+                            style={{ 
+                              padding: 0, 
+                              height: '17px', 
+                              width: '24px', 
+                              background: 'var(--primary-light)', 
+                              border: '1px solid var(--glass-border)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--primary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                              opacity: idx === 0 ? 0.3 : 1
+                            }}
+                            title="Subir"
+                          >
+                            <ChevronUp size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveItem(idx, 'down')}
+                            disabled={idx === form.items_multiples.length - 1}
+                            style={{ 
+                              padding: 0, 
+                              height: '17px', 
+                              width: '24px', 
+                              background: 'var(--primary-light)', 
+                              border: '1px solid var(--glass-border)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--primary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: idx === form.items_multiples.length - 1 ? 'not-allowed' : 'pointer',
+                              opacity: idx === form.items_multiples.length - 1 ? 0.3 : 1
+                            }}
+                            title="Bajar"
+                          >
+                            <ChevronDown size={12} />
+                          </button>
+                        </div>
+
                         <button 
+                          type="button"
                           className="delete-btn" 
                           style={{ alignSelf: 'flex-end', height: '36px', width: '36px', padding: 0 }}
                           onClick={() => {
