@@ -14,6 +14,8 @@ interface ProductForm {
   datos_bancarios: string
   notas_placeholder: string
   activo: boolean
+  es_multiple: boolean
+  items_multiples: { descripcion: string, valor: number }[]
 }
 
 const emptyForm: ProductForm = {
@@ -29,7 +31,11 @@ const emptyForm: ProductForm = {
   whatsapp_numero: '',
   datos_bancarios: '',
   notas_placeholder: '',
-  activo: true
+  activo: true,
+  es_multiple: false,
+  items_multiples: [
+    { descripcion: '', valor: 0 }
+  ]
 }
 
 export default function AdminDashboard() {
@@ -47,7 +53,8 @@ export default function AdminDashboard() {
   const [updatingOrders, setUpdatingOrders] = useState<Set<string>>(new Set())
   const [showManualOrderForm, setShowManualOrderForm] = useState(false)
   const [manualOrder, setManualOrder] = useState({
-    cliente_nombre: '', apellido: '', telefono: '', producto_id: '', cantidad: 1, notas: ''
+    cliente_nombre: '', apellido: '', telefono: '', notas: '',
+    items: [{ descripcion: '', valor: 0, cantidad: 1 }] as { descripcion: string, valor: number, cantidad: number }[]
   })
   const [filterProductId, setFilterProductId] = useState<string>('all')
   
@@ -178,9 +185,22 @@ export default function AdminDashboard() {
   }
 
   const handleSubmitProduct = async () => {
-    if (!form.nombre.trim() || !form.precio.trim()) {
-      setError('Nombre y precio son obligatorios')
+    if (!form.nombre.trim()) {
+      setError('El nombre del producto es obligatorio')
       return
+    }
+
+    if (!form.es_multiple && !form.precio.trim()) {
+      setError('El precio es obligatorio')
+      return
+    }
+
+    if (form.es_multiple) {
+      const validItems = form.items_multiples.filter(item => item.descripcion.trim() && item.valor > 0)
+      if (validItems.length === 0) {
+        setError('Para una publicación múltiple, debes agregar al menos un artículo con descripción y valor')
+        return
+      }
     }
 
     setSaving(true)
@@ -189,15 +209,17 @@ export default function AdminDashboard() {
       const productData = {
         nombre: form.nombre.trim(),
         descripcion: form.descripcion.trim(),
-        precio: parseFloat(form.precio),
+        precio: form.es_multiple ? 0 : (parseFloat(form.precio) || 0),
         imagenes: form.imagenes.length > 0 ? form.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600'],
-        stock: parseInt(form.stock) || 0,
+        stock: form.es_multiple ? 0 : (parseInt(form.stock) || 0),
         activo: form.activo,
-        cantidades: form.precios_bulk.map(pb => pb.cantidad).filter(c => c > 0),
-        precios_bulk: form.precios_bulk.filter(pb => pb.cantidad > 0),
+        cantidades: form.es_multiple ? [] : form.precios_bulk.map(pb => pb.cantidad).filter(c => c > 0),
+        precios_bulk: form.es_multiple ? [] : form.precios_bulk.filter(pb => pb.cantidad > 0),
         whatsapp_numero: form.whatsapp_numero.trim(),
         datos_bancarios: form.datos_bancarios.trim(),
-        notas_placeholder: form.notas_placeholder.trim()
+        notas_placeholder: form.notas_placeholder.trim(),
+        es_multiple: form.es_multiple,
+        items_multiples: form.es_multiple ? form.items_multiples.filter(item => item.descripcion.trim()) : []
       }
 
       if (editingId) {
@@ -216,23 +238,20 @@ export default function AdminDashboard() {
   }
 
   const handleSubmitManualOrder = async () => {
-    const p = products.find(prod => prod.id === manualOrder.producto_id)
-    if (!p) {
-      setError('Seleccioná un producto')
-      return
-    }
     if (!manualOrder.cliente_nombre.trim() || !manualOrder.apellido.trim()) {
       setError('Nombre y apellido son obligatorios')
       return
     }
-    if (manualOrder.cantidad <= 0) {
-      setError('La cantidad debe ser mayor a 0')
+
+    const validItems = manualOrder.items.filter(item => item.descripcion.trim() && item.valor > 0 && item.cantidad > 0)
+    if (validItems.length === 0) {
+      setError('Agregá al menos un ítem con descripción, valor y cantidad')
       return
     }
 
     setSaving(true)
     setError(null)
-    const total = p.precio * manualOrder.cantidad
+    const total = validItems.reduce((sum, item) => sum + (item.valor * item.cantidad), 0)
     
     try {
       await orderService.createOrder({
@@ -242,17 +261,20 @@ export default function AdminDashboard() {
         notas: manualOrder.notas.trim(),
         admin_notas: 'Pedido manual agregado desde Admin',
         total,
-        comprobante_url: 'Pedido Manual', // Placeholder for DB if missing
-        items: [{
-          producto_id: p.id,
-          nombre: p.nombre,
-          cantidad: manualOrder.cantidad,
-          precio: p.precio
-        }]
-      } as any) // cast to any to handle optional fields correctly
+        comprobante_url: 'Pedido Manual',
+        items: validItems.map(item => ({
+          producto_id: 'manual',
+          nombre: item.descripcion,
+          cantidad: item.cantidad,
+          precio: item.valor
+        }))
+      } as any)
       
       setShowManualOrderForm(false)
-      setManualOrder({ cliente_nombre: '', apellido: '', telefono: '', producto_id: '', cantidad: 1, notas: '' })
+      setManualOrder({
+        cliente_nombre: '', apellido: '', telefono: '', notas: '',
+        items: [{ descripcion: '', valor: 0, cantidad: 1 }]
+      })
       await refreshData()
     } catch (err: any) {
       setError(err.message || 'Error al crear pedido manual')
@@ -272,7 +294,9 @@ export default function AdminDashboard() {
       whatsapp_numero: p.whatsapp_numero || '',
       datos_bancarios: p.datos_bancarios || '',
       notas_placeholder: p.notas_placeholder || '',
-      activo: p.activo
+      activo: p.activo,
+      es_multiple: p.es_multiple || false,
+      items_multiples: p.items_multiples?.length ? p.items_multiples : [{ descripcion: '', valor: 0 }]
     })
     setEditingId(p.id)
     setError(null)
@@ -501,11 +525,19 @@ export default function AdminDashboard() {
       {/* Manual Order Modal */}
       {showManualOrderForm && (
         <div className="modal-overlay" onClick={() => setShowManualOrderForm(false)}>
-          <div className="modal glass" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+          <div className="modal glass" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
             <div className="modal-header">
               <h3>Nuevo Pedido Manual</h3>
               <button onClick={() => setShowManualOrderForm(false)} className="icon-btn"><X size={20} /></button>
             </div>
+
+            {error && (
+              <div className="error-banner" style={{ margin: '1rem 0' }}>
+                <AlertCircle size={20} color="#DC2626" />
+                <span style={{ color: '#991B1B', flex: 1 }}>{error}</span>
+                <button onClick={() => setError(null)} style={{ background: 'none' }}><X size={16} /></button>
+              </div>
+            )}
             
             <div className="form-row">
               <div className="form-group">
@@ -523,22 +555,93 @@ export default function AdminDashboard() {
               <input type="text" placeholder="Opcional" value={manualOrder.telefono} onChange={(e) => setManualOrder({...manualOrder, telefono: e.target.value})} />
             </div>
 
-            <div className="form-group">
-              <label>Producto *</label>
-              <select 
-                value={manualOrder.producto_id} 
-                onChange={(e) => setManualOrder({...manualOrder, producto_id: e.target.value})}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '2px solid var(--glass-border)', background: 'var(--surface)', fontSize: '0.95rem' }}
+            {/* Multi-item section */}
+            <div className="multi-items-section">
+              <label style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
+                Artículos del Pedido
+              </label>
+
+              {manualOrder.items.map((item, index) => (
+                <div key={index} className="multi-item-row">
+                  <div className="multi-item-fields">
+                    <div className="multi-item-field multi-item-desc">
+                      <span className="field-label">Descripción</span>
+                      <input
+                        type="text"
+                        placeholder="Ej: Empanadas de carne"
+                        value={item.descripcion}
+                        onChange={(e) => {
+                          const newItems = [...manualOrder.items]
+                          newItems[index] = { ...newItems[index], descripcion: e.target.value }
+                          setManualOrder({ ...manualOrder, items: newItems })
+                        }}
+                      />
+                    </div>
+                    <div className="multi-item-field multi-item-val">
+                      <span className="field-label">Valor ($)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.valor || ''}
+                        onChange={(e) => {
+                          const newItems = [...manualOrder.items]
+                          newItems[index] = { ...newItems[index], valor: parseFloat(e.target.value) || 0 }
+                          setManualOrder({ ...manualOrder, items: newItems })
+                        }}
+                      />
+                    </div>
+                    <div className="multi-item-field multi-item-qty">
+                      <span className="field-label">Cantidad</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.cantidad}
+                        onChange={(e) => {
+                          const newItems = [...manualOrder.items]
+                          newItems[index] = { ...newItems[index], cantidad: parseInt(e.target.value) || 1 }
+                          setManualOrder({ ...manualOrder, items: newItems })
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="multi-item-subtotal">
+                    <span className="field-label">Subtotal</span>
+                    <span className="subtotal-value">${(item.valor * item.cantidad).toLocaleString()}</span>
+                  </div>
+                  {manualOrder.items.length > 1 && (
+                    <button
+                      className="multi-item-remove"
+                      onClick={() => {
+                        setManualOrder({
+                          ...manualOrder,
+                          items: manualOrder.items.filter((_, i) => i !== index)
+                        })
+                      }}
+                      title="Eliminar ítem"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              <button 
+                className="multi-item-add" 
+                onClick={() => setManualOrder({
+                  ...manualOrder,
+                  items: [...manualOrder.items, { descripcion: '', valor: 0, cantidad: 1 }]
+                })}
               >
-                <option value="">Seleccione un producto...</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.nombre} (${p.precio})</option>)}
-              </select>
+                <Plus size={18} />
+                Agregar otro artículo
+              </button>
             </div>
 
-            <div className="form-group">
-              <label>Cantidad *</label>
-              <input type="number" min="1" value={manualOrder.cantidad} onChange={(e) => setManualOrder({...manualOrder, cantidad: parseInt(e.target.value) || 1})} />
-            </div>
+            {manualOrder.items.reduce((sum, item) => sum + (item.valor * item.cantidad), 0) > 0 && (
+              <div className="order-total" style={{ marginTop: '1rem' }}>
+                Total: <strong>${manualOrder.items.reduce((sum, item) => sum + (item.valor * item.cantidad), 0).toLocaleString()}</strong>
+              </div>
+            )}
 
             <div className="form-group">
               <label>Notas (Opcional)</label>
@@ -563,6 +666,14 @@ export default function AdminDashboard() {
                   <button onClick={closeModal} className="icon-btn"><X size={20} /></button>
                 </div>
 
+                {error && (
+                  <div className="error-banner" style={{ margin: '1rem 0' }}>
+                    <AlertCircle size={20} color="#DC2626" />
+                    <span style={{ color: '#991B1B', flex: 1 }}>{error}</span>
+                    <button onClick={() => setError(null)} style={{ background: 'none' }}><X size={16} /></button>
+                  </div>
+                )}
+
                 <div className="form-group">
                   <label>Nombre *</label>
                   <input type="text" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
@@ -578,71 +689,145 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Precio *</label>
-                    <input type="number" value={form.precio} onChange={(e) => setForm({ ...form, precio: e.target.value })} />
+                {!form.es_multiple && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Precio *</label>
+                      <input type="number" value={form.precio} onChange={(e) => setForm({ ...form, precio: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label>Stock</label>
+                      <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Stock</label>
-                    <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
-                  </div>
+                )}
+
+                <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.75rem', background: 'var(--primary-light)', borderRadius: 'var(--radius-sm)', margin: '1rem 0' }}>
+                  <input 
+                    type="checkbox" 
+                    id="es_multiple" 
+                    checked={form.es_multiple} 
+                    onChange={(e) => setForm({ ...form, es_multiple: e.target.checked })} 
+                    style={{ margin: 0, height: '1.2rem', width: '1.2rem', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="es_multiple" style={{ cursor: 'pointer', margin: 0, fontSize: '0.95rem', fontWeight: '800', color: 'var(--primary)' }}>
+                    ¿Es una publicación múltiple (lista de artículos)?
+                  </label>
                 </div>
 
-                <div className="form-group" style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: 'var(--radius)' }}>
-                  <label style={{ color: 'var(--primary)', marginBottom: '0.75rem', fontSize: '0.95rem' }}>Cantidades y Precios (Promociones)</label>
-                  
-                  {form.precios_bulk.map((pb, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
-                      <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cantidad</span>
-                        <input 
-                          type="number" 
-                          min="1" 
-                          value={pb.cantidad || ''} 
-                          onChange={(e) => {
-                            const newBulk = [...form.precios_bulk]
-                            newBulk[idx].cantidad = parseInt(e.target.value) || 0
-                            setForm({ ...form, precios_bulk: newBulk })
-                          }} 
-                          style={{ padding: '0.4rem', fontSize: '0.85rem' }}
-                        />
+                {form.es_multiple ? (
+                  <div className="form-group" style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid var(--glass-border)' }}>
+                    <label style={{ color: 'var(--primary)', marginBottom: '0.75rem', fontSize: '0.95rem', fontWeight: '800' }}>Artículos Predefinidos</label>
+                    
+                    {form.items_multiples.map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ flex: 3 }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Descripción</span>
+                          <input 
+                            type="text" 
+                            placeholder="Ej: Empanada de Carne"
+                            value={item.descripcion || ''} 
+                            onChange={(e) => {
+                              const newItems = [...form.items_multiples]
+                              newItems[idx].descripcion = e.target.value
+                              setForm({ ...form, items_multiples: newItems })
+                            }} 
+                            style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                          />
+                        </div>
+                        <div style={{ flex: 1.5 }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Valor ($)</span>
+                          <input 
+                            type="number" 
+                            min="0" 
+                            placeholder="800"
+                            value={item.valor || ''} 
+                            onChange={(e) => {
+                              const newItems = [...form.items_multiples]
+                              newItems[idx].valor = parseFloat(e.target.value) || 0
+                              setForm({ ...form, items_multiples: newItems })
+                            }} 
+                            style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                          />
+                        </div>
+                        <button 
+                          className="delete-btn" 
+                          style={{ alignSelf: 'flex-end', height: '36px', width: '36px', padding: 0 }}
+                          onClick={() => {
+                            setForm({ ...form, items_multiples: form.items_multiples.filter((_, i) => i !== idx) })
+                          }}
+                        >
+                          <X size={16} />
+                        </button>
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Precio Total ($)</span>
-                        <input 
-                          type="number" 
-                          min="0" 
-                          value={pb.precio_total || ''} 
-                          onChange={(e) => {
-                            const newBulk = [...form.precios_bulk]
-                            newBulk[idx].precio_total = parseFloat(e.target.value) || 0
-                            setForm({ ...form, precios_bulk: newBulk })
-                          }} 
-                          style={{ padding: '0.4rem', fontSize: '0.85rem' }}
-                        />
+                    ))}
+                    
+                    <button 
+                      style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.5rem' }}
+                      onClick={() => setForm({ ...form, items_multiples: [...form.items_multiples, { descripcion: '', valor: 0 }] })}
+                    >
+                      <Plus size={16} /> Agregar artículo
+                    </button>
+                    <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                      Definí los nombres y precios fijos. Los clientes podrán tildar cuáles quieren comprar e indicar la cantidad de cada uno.
+                    </small>
+                  </div>
+                ) : (
+                  <div className="form-group" style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: 'var(--radius)' }}>
+                    <label style={{ color: 'var(--primary)', marginBottom: '0.75rem', fontSize: '0.95rem' }}>Cantidades y Precios (Promociones)</label>
+                    
+                    {form.precios_bulk.map((pb, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cantidad</span>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            value={pb.cantidad || ''} 
+                            onChange={(e) => {
+                              const newBulk = [...form.precios_bulk]
+                              newBulk[idx].cantidad = parseInt(e.target.value) || 0
+                              setForm({ ...form, precios_bulk: newBulk })
+                            }} 
+                            style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Precio Total ($)</span>
+                          <input 
+                            type="number" 
+                            min="0" 
+                            value={pb.precio_total || ''} 
+                            onChange={(e) => {
+                              const newBulk = [...form.precios_bulk]
+                              newBulk[idx].precio_total = parseFloat(e.target.value) || 0
+                              setForm({ ...form, precios_bulk: newBulk })
+                            }} 
+                            style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                          />
+                        </div>
+                        <button 
+                          className="delete-btn" 
+                          style={{ alignSelf: 'flex-end', height: '36px', width: '36px', padding: 0 }}
+                          onClick={() => {
+                            setForm({ ...form, precios_bulk: form.precios_bulk.filter((_, i) => i !== idx) })
+                          }}
+                        >
+                          <X size={16} />
+                        </button>
                       </div>
-                      <button 
-                        className="delete-btn" 
-                        style={{ alignSelf: 'flex-end', height: '36px', width: '36px', padding: 0 }}
-                        onClick={() => {
-                          setForm({ ...form, precios_bulk: form.precios_bulk.filter((_, i) => i !== idx) })
-                        }}
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ))}
-                  <button 
-                    style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.5rem' }}
-                    onClick={() => setForm({ ...form, precios_bulk: [...form.precios_bulk, { cantidad: 0, precio_total: 0 }] })}
-                  >
-                    <Plus size={16} /> Agregar opción de cantidad
-                  </button>
-                  <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem', fontSize: '0.75rem' }}>
-                    Si un cliente elige una cantidad que está en esta lista, se le cobrará el Precio Total exacto que definas aquí.
-                  </small>
-                </div>
+                    ))}
+                    <button 
+                      style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '0.5rem' }}
+                      onClick={() => setForm({ ...form, precios_bulk: [...form.precios_bulk, { cantidad: 0, precio_total: 0 }] })}
+                    >
+                      <Plus size={16} /> Agregar opción de cantidad
+                    </button>
+                    <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                      Si un cliente elige una cantidad que está en esta lista, se le cobrará el Precio Total exacto que definas aquí.
+                    </small>
+                  </div>
+                )}
 
                 <div className="form-group" style={{ background: 'rgba(0,0,0,0.02)', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid var(--glass-border)', marginTop: '1rem' }}>
                   <label style={{ color: 'var(--primary)', marginBottom: '0.75rem', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>

@@ -1,16 +1,22 @@
 import { useState, useRef } from 'react'
 import { Product, productService } from '../services/productService'
 import { orderService } from '../services/orderService'
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, Upload, CheckCircle, X } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageCircle, Upload, CheckCircle, X, Plus, Trash2 } from 'lucide-react'
 
 interface Props {
   product: Product
   onBack: () => void
 }
 
+interface PedidoItem {
+  descripcion: string
+  valor: number
+  cantidad: number
+  checked?: boolean
+}
+
 export default function ProductDetail({ product, onBack }: Props) {
   const [currentImg, setCurrentImg] = useState(0)
-  const [qty, setQty] = useState(0)
   const [nombre, setNombre] = useState('')
   const [apellido, setApellido] = useState('')
   const [notas, setNotas] = useState('')
@@ -21,17 +27,60 @@ export default function ProductDetail({ product, onBack }: Props) {
   const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const imagenes = product.imagenes?.length > 0 ? product.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
-  const cantidades = (product.precios_bulk && product.precios_bulk.length > 0) 
-    ? product.precios_bulk.map(pb => pb.cantidad) 
+  // Load items depending on whether the product is multiple or not
+  const [items, setItems] = useState<PedidoItem[]>(() => {
+    if (product.es_multiple && product.items_multiples?.length) {
+      return product.items_multiples.map(item => ({
+        descripcion: item.descripcion,
+        valor: item.valor,
+        cantidad: 1,
+        checked: false
+      }))
+    }
+    return [{ descripcion: '', valor: 0, cantidad: 1 }]
+  })
+
+  // Quantities for standard product
+  const cantidades = (product.precios_bulk && product.precios_bulk.length > 0)
+    ? product.precios_bulk.map(pb => pb.cantidad)
     : (product.cantidades || [6, 12, 18, 24])
-  
+
+  const [qty, setQty] = useState(() => {
+    return cantidades[0] || 6
+  })
+
   const getBulkPrice = (q: number) => {
     const promo = product.precios_bulk?.find(pb => pb.cantidad === q)
     return promo ? promo.precio_total : q * product.precio
   }
-  
-  const total = getBulkPrice(qty)
+
+  const total = product.es_multiple
+    ? items.reduce((sum, item) => sum + (item.checked ? item.valor * item.cantidad : 0), 0)
+    : getBulkPrice(qty)
+
+  const imagenes = product.imagenes?.length > 0 ? product.imagenes : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=600']
+
+  // Manual items controls (Only used as backup or if es_multiple is false but they wanted to add manually, though we keep standard product simple now)
+  const addItem = () => {
+    setItems([...items, { descripcion: '', valor: 0, cantidad: 1 }])
+  }
+
+  const removeItem = (index: number) => {
+    if (items.length <= 1) return
+    setItems(items.filter((_, i) => i !== index))
+  }
+
+  const updateItem = (index: number, field: keyof PedidoItem, value: string | number) => {
+    const newItems = [...items]
+    if (field === 'descripcion') {
+      newItems[index].descripcion = value as string
+    } else if (field === 'valor') {
+      newItems[index].valor = parseFloat(value as string) || 0
+    } else if (field === 'cantidad') {
+      newItems[index].cantidad = parseInt(value as string) || 1
+    }
+    setItems(newItems)
+  }
 
   const handleComprobanteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -46,10 +95,16 @@ export default function ProductDetail({ product, onBack }: Props) {
       setError('Por favor completá nombre y apellido')
       return
     }
-    if (qty <= 0) {
-      setError('Seleccioná una cantidad')
+
+    const validItems = product.es_multiple
+      ? items.filter(item => item.checked && item.cantidad > 0)
+      : [{ descripcion: product.nombre, valor: getBulkPrice(qty) / qty, cantidad: qty }]
+
+    if (validItems.length === 0) {
+      setError(product.es_multiple ? 'Seleccioná al menos un artículo de la lista' : 'La cantidad debe ser mayor a 0')
       return
     }
+
     if (!comprobante) {
       setError('Subí el comprobante de transferencia')
       return
@@ -66,30 +121,34 @@ export default function ProductDetail({ product, onBack }: Props) {
       await orderService.createOrder({
         cliente_nombre: nombre.trim(),
         apellido: apellido.trim(),
-        telefono: '', // Removed from UI, sending empty
+        telefono: '',
         notas: notas.trim(),
-        admin_notas: '', // Required by Order interface
+        admin_notas: '',
         total,
         comprobante_url: comprobanteUrl,
-        items: [{
+        items: validItems.map(item => ({
           producto_id: product.id,
-          nombre: product.nombre,
-          cantidad: qty,
-          precio: product.precio
-        }]
+          nombre: item.descripcion,
+          cantidad: item.cantidad,
+          precio: item.valor
+        }))
       })
 
       // Send WhatsApp
+      const itemsText = validItems.map(item =>
+        `  • ${item.descripcion} — ${item.cantidad} x $${item.valor.toLocaleString()} = $${(item.cantidad * item.valor).toLocaleString()}`
+      ).join('\n')
+
       const message = encodeURIComponent(
         `*Nuevo Pedido - San Martín*\n\n` +
         `*Cliente:* ${nombre} ${apellido}\n` +
-        `*Producto:* ${product.nombre}\n` +
-        `*Cantidad:* ${qty}\n` +
+        `*Producto:* ${product.nombre}\n\n` +
+        `*Detalle del pedido:*\n${itemsText}\n\n` +
         `*Total:* $${total.toLocaleString()}\n` +
         (notas ? `*Notas:* ${notas}\n` : '') +
         `\n_Comprobante adjuntado en el sistema._`
       )
-      
+
       const whatsapp = product.whatsapp_numero || ''
       window.open(`https://wa.me/${whatsapp}?text=${message}`, '_blank')
       setSuccess(true)
@@ -156,7 +215,7 @@ export default function ProductDetail({ product, onBack }: Props) {
         {/* Product Info & Order Form */}
         <div className="detail-info">
           <h1 className="detail-title">{product.nombre}</h1>
-          <div className="detail-price">${product.precio.toLocaleString()}</div>
+          {!product.es_multiple && <div className="detail-price">${product.precio.toLocaleString()}</div>}
           <p className="detail-desc">{product.descripcion}</p>
 
           <div className="order-section">
@@ -173,23 +232,110 @@ export default function ProductDetail({ product, onBack }: Props) {
               </div>
             </div>
 
-            <div className="form-group">
-              <label>Cantidad *</label>
-              <div className="quantity-selector">
-                {cantidades.map(q => (
-                  <button key={q} className={`q-btn ${qty === q ? 'active' : ''}`} onClick={() => setQty(q)}>
-                    {q} un.
-                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'normal', color: qty === q ? 'inherit' : 'var(--text-muted)' }}>
-                      ${getBulkPrice(q).toLocaleString()}
-                    </span>
-                  </button>
-                ))}
+            {/* Product Configuration: es_multiple checklist vs standard bulk quantities */}
+            {product.es_multiple ? (
+              <div className="multi-items-section">
+                <label style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
+                  Elegí tus artículos *
+                </label>
+                
+                <div className="multiple-checklist">
+                  {items.map((item, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`checklist-row ${item.checked ? 'checked' : ''}`}
+                    >
+                      <input 
+                        type="checkbox" 
+                        className="checklist-checkbox"
+                        checked={item.checked || false}
+                        onChange={(e) => {
+                          const newItems = [...items]
+                          newItems[idx].checked = e.target.checked
+                          setItems(newItems)
+                        }}
+                      />
+                      
+                      <span 
+                        className="checklist-desc"
+                        onClick={() => {
+                          const newItems = [...items]
+                          newItems[idx].checked = !newItems[idx].checked
+                          setItems(newItems)
+                        }}
+                      >
+                        {item.descripcion}
+                      </span>
+                      
+                      <span className="checklist-value">
+                        ${item.valor.toLocaleString()} c/u
+                      </span>
+                      
+                      <div className="checklist-qty-container">
+                        <input 
+                          type="number" 
+                          min="1" 
+                          className="checklist-qty-input"
+                          value={item.cantidad}
+                          disabled={!item.checked}
+                          onChange={(e) => {
+                            const newItems = [...items]
+                            newItems[idx].cantidad = Math.max(1, parseInt(e.target.value) || 1)
+                            setItems(newItems)
+                          }}
+                        />
+                      </div>
+                      
+                      <span className="checklist-total">
+                        ${(item.valor * item.cantidad).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'block' }}>
+                  Cantidad
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                  {cantidades.map(q => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => setQty(q)}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: `1.5px solid ${qty === q ? 'var(--primary)' : 'var(--glass-border)'}`,
+                        background: qty === q ? 'var(--primary-light)' : 'var(--surface)',
+                        color: qty === q ? 'var(--primary)' : 'var(--text)',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {q} U. {product.precios_bulk?.some(pb => pb.cantidad === q) && <span style={{ fontSize: '0.7rem', color: 'var(--accent)', marginLeft: '0.2rem' }}>(Promo)</span>}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Otra cantidad:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    className="checklist-qty-input"
+                    value={qty}
+                    onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{ width: '5.5rem' }}
+                  />
+                </div>
+              </div>
+            )}
 
-            {qty > 0 && (
-              <div className="order-total">
-                Total: <strong>${total.toLocaleString()}</strong>
+            {total > 0 && (
+              <div className="order-total" style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+                Total del Pedido: <strong>${total.toLocaleString()}</strong>
               </div>
             )}
 

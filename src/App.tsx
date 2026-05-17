@@ -14,7 +14,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   const handleLogin = (pass: string) => {
-    if (pass === 'admin123') {
+    if (pass === 'cocina319') {
       setIsAuthenticated(true)
       setView('admin')
     } else {

@@ -13,6 +13,8 @@ export interface Product {
   whatsapp_numero?: string
   datos_bancarios?: string
   notas_placeholder?: string
+  es_multiple?: boolean
+  items_multiples?: { descripcion: string, valor: number }[]
 }
 
 export const productService = {
