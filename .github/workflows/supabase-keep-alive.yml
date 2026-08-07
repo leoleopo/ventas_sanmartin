@@ -1,0 +1,39 @@
+name: Supabase Keep Alive
+
+on:
+  schedule:
+    # Ejecuta la acción todos los días a las 10:00 UTC (mañana/mediodía)
+    - cron: '0 10 * * *'
+  # Permite ejecutar el workflow manualmente desde GitHub
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          echo "Haciendo un ping a Supabase para evitar que se pause..."
+          
+          # Si los secretos no están configurados, intentará usar los valores directos
+          # (Se recomienda encarecidamente configurar los secretos en GitHub)
+          URL="${SUPABASE_URL:-https://vzzmuavylibrdswzagfp.supabase.co}"
+          KEY="${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6em11YXZ5bGlicmRzd3phZ2ZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5Mjc5MjgsImV4cCI6MjA5MzUwMzkyOH0.MwPuDDBvKwF29J1OvFipoN3mXkLnVsFP3oLSS-GUqVE}"
+
+          # Hace una llamada a la API REST de Supabase (consulta básica a una tabla vacía o endpoint genérico)
+          # Solicitamos la ruta raíz de la API, que es suficiente para registrar actividad.
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY" \
+            "$URL/rest/v1/")
+          
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "Ping exitoso. Código de respuesta: $RESPONSE"
+          else
+            echo "Hubo un problema. Código de respuesta: $RESPONSE"
+            # Si quieres que falle el workflow si no responde 200, descomenta la siguiente línea:
+            # exit 1
+          fi
