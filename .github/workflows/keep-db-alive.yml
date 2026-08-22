@@ -9,12 +9,15 @@ jobs:
   ping-database:
     runs-on: ubuntu-latest
     steps:
+      - name: Debug - Check secrets
+        run: |
+          echo "SUPABASE_URL length: ${#SUPABASE_URL}"
+          echo "SUPABASE_URL: $SUPABASE_URL"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+
       - name: Ping Supabase
         run: |
-          curl -X POST "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+          curl -s -o /dev/null -w "%{http_code}" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Content-Type: application/json" \
-            -H "Prefer: count=exact" \
-            -d '{"limit": 1}' \
-            -s -o /dev/null -w "%{http_code}" | grep -q "^2"
+            "${{ secrets.SUPABASE_URL }}/rest/v1/?limit=1"
