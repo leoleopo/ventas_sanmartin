@@ -29,30 +29,46 @@ jobs:
           URL="${SUPABASE_URL:-https://vzzmuavylibrdswzagfp.supabase.co}"
           KEY="${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_k2qX6MNFfC0r5qFHPKwnpQ_Mg92JzbS}"
 
-          # /rest/v1/ exige service_role: con una key publishable el gateway
-          # responde 401 y nunca llega a Postgres, asi que no genera ninguna
-          # actividad. Consultar una tabla real si genera actividad en la DB,
-          # que es lo que evita la pausa por inactividad.
-          ENDPOINT="$URL/rest/v1/productos?select=id&limit=1"
-
-          CODE="000"
-          for attempt in 1 2 3 4 5; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+          # Importante: /rest/v1/ exige service_role. Con una key publishable
+          # el gateway responde 401 y nunca llega a Postgres, asi que no genera
+          # actividad. Solo las queries contra tablas reales ejecutan SQL, y
+          # eso es lo que Supabase mira para decidir si pausa el proyecto.
+          #
+          # Prefer: count=exact hace que PostgREST ejecute ademas un plan
+          # count(*), o sea el doble de actividad por request.
+          #
+          # Un 401/403 de RLS NO es un fallo: la query ya se ejecuto contra
+          # Postgres antes de aplicar el filtro de filas. Solo son fatales
+          # los 5xx y los errores de conexion.
+          ping() {
+            local path="$1" label="$2" code
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
               -H "apikey: $KEY" \
               -H "Authorization: Bearer $KEY" \
-              "$ENDPOINT") || CODE="000"
+              -H "Prefer: count=exact" \
+              "$URL$path") || code="000"
 
-            echo "Intento $attempt: HTTP $CODE"
+            case "$code" in
+              2*) echo "  $label: HTTP $code" ;;
+              401|403) echo "  $label: HTTP $code (RLS lo denies, pero la query si llego a Postgres)" ;;
+              *) echo "  $label: HTTP $code" ; return 1 ;;
+            esac
+            return 0
+          }
 
-            if [ "$CODE" = "200" ]; then
+          for attempt in 1 2 3 4 5; do
+            echo "Intento $attempt:"
+
+            if ping "/rest/v1/productos?select=id&limit=1" "productos" \
+              && ping "/rest/v1/pedidos?select=id&limit=1" "pedidos"; then
               echo "Base de datos activa."
               exit 0
             fi
 
-            sleep $((attempt * 15))
+            [ "$attempt" -lt 5 ] && sleep $((attempt * 15))
           done
 
-          echo "::error::La base de datos no responde (ultimo HTTP $CODE)"
+          echo "::error::La base de datos no responde"
           exit 1
 
   heartbeat:
@@ -72,14 +88,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # GitHub desactiva los cron de repos publicos tras 60 dias sin
-          # actividad, y las corridas del workflow no cuentan. Solo hacemos
-          # commit si el ultimo tiene mas de 30 dias, para no generar
-          # deploys de Vercel en cada corrida.
+          # actividad, y las corridas del workflow no cuentan como actividad.
+          # Hay que commitear antes de llegar a ese limite: con un umbral de
+          # 10 dias el margen es de 50 dias, muy por debajo del corte.
+          # Cada commit dispara un deploy de Vercel, por eso no es mas seguido.
           LAST=$(git log -1 --format=%ct)
           NOW=$(date -u +%s)
           DAYS=$(( (NOW - LAST) / 86400 ))
 
-          if [ "$DAYS" -lt 30 ]; then
+          if [ "$DAYS" -lt 10 ]; then
             echo "Ultimo commit hace $DAYS dias. No hace falta actividad."
             exit 0
           fi
