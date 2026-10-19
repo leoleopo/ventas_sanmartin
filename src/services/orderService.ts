@@ -34,13 +34,13 @@ export const orderService = {
   },
 
   async createOrder(order: Omit<Order, 'id' | 'created_at' | 'estado'>) {
-    const { data, error } = await supabase
+    // Sin .select(): el RETURNING de un INSERT exige privilegio SELECT sobre
+    // la tabla, que el cliente anon no tiene (solo puede insertar).
+    const { error } = await supabase
       .from('pedidos')
       .insert([{ ...order, estado: 'pendiente' }])
-      .select()
-    
+
     if (error) throw error
-    return data[0]
   },
 
   async updateStatus(id: string, estado: 'pendiente' | 'entregado') {

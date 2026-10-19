@@ -1,12 +1,20 @@
 import { useState } from 'react'
-import { Lock } from 'lucide-react'
+import { Lock, LogIn } from 'lucide-react'
 
 interface LoginProps {
-  onLogin: (pass: string) => void
+  onLogin: (email: string, password: string) => Promise<void>
+  error: string | null
+  loading: boolean
 }
 
-export default function Login({ onLogin }: LoginProps) {
+export default function Login({ onLogin, error, loading }: LoginProps) {
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+
+  const submit = () => {
+    if (!email || !password || loading) return
+    onLogin(email, password)
+  }
 
   return (
     <div className="container" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -15,19 +23,31 @@ export default function Login({ onLogin }: LoginProps) {
           <Lock size={32} />
         </div>
         <h2 style={{ marginBottom: '1.5rem' }}>Acceso Admin</h2>
-        <input 
-          type="password" 
+        <input
+          type="email"
+          placeholder="Email"
+          autoComplete="username"
+          className="glass"
+          style={{ width: '100%', padding: '0.75rem', marginBottom: '0.75rem', textAlign: 'center' }}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <input
+          type="password"
           placeholder="Contraseña"
+          autoComplete="current-password"
           className="glass"
           style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', textAlign: 'center' }}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onLogin(password)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
         />
-        <button className="primary" style={{ width: '100%' }} onClick={() => onLogin(password)}>
-          Entrar
+        <button className="primary" style={{ width: '100%' }} onClick={submit} disabled={loading}>
+          <LogIn size={16} />
+          {loading ? 'Verificando...' : 'Entrar'}
         </button>
 
+        {error && <div className="error-msg" style={{ marginTop: '1rem', marginBottom: 0 }}>{error}</div>}
       </div>
     </div>
   )

@@ -1,24 +1,63 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Product, productService } from '../services/productService'
-import { ShoppingBag, ChevronLeft, ChevronRight, MessageCircle, Eye } from 'lucide-react'
+import { pingDatabase } from '../lib/supabase'
+import { ShoppingBag, ChevronLeft, ChevronRight, MessageCircle, Eye, RefreshCw, WifiOff } from 'lucide-react'
 
 interface CatalogProps {
   onViewProduct: (product: Product) => void
 }
 
+const KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000
+
 export default function Catalog({ onViewProduct }: CatalogProps) {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadProducts = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await productService.getAll()
+      setProducts(data)
+    } catch (err: any) {
+      setError(err?.message || 'No pudimos cargar los productos')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    productService.getAll()
-      .then(setProducts)
-      .finally(() => setLoading(false))
+    loadProducts()
+  }, [loadProducts])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        pingDatabase().catch(() => {})
+      }
+    }, KEEPALIVE_INTERVAL_MS)
+
+    return () => clearInterval(timer)
   }, [])
 
   if (loading) return (
     <div className="container" style={{ textAlign: 'center', padding: '4rem 1rem' }}>
       <div className="loading-spinner"></div>
+    </div>
+  )
+
+  if (error) return (
+    <div className="container">
+      <div className="empty-state">
+        <WifiOff size={48} />
+        <h2>Sin conexión con la base de datos</h2>
+        <p style={{ marginBottom: '1.5rem' }}>{error}</p>
+        <button className="btn-view" onClick={loadProducts} style={{ margin: '0 auto' }}>
+          <RefreshCw size={16} />
+          Reintentar
+        </button>
+      </div>
     </div>
   )
 

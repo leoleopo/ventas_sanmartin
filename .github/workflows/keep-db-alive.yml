@@ -2,22 +2,88 @@ name: Keep Supabase Alive
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # Daily at 6:00 UTC
-  workflow_dispatch:  # Allow manual trigger
+    # Cada 6 horas en minuto 17 (evita el pico de carga de GitHub a xx:00)
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keep-supabase-alive
+  cancel-in-progress: false
 
 jobs:
-  ping-database:
+  ping:
+    name: Ping a la base de datos
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Debug - Check secrets
-        run: |
-          echo "SUPABASE_URL length: ${#SUPABASE_URL}"
-          echo "SUPABASE_URL: $SUPABASE_URL"
+      - name: Ping
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-
-      - name: Ping Supabase
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/?limit=1"
+          set -euo pipefail
+
+          URL="${SUPABASE_URL:-https://vzzmuavylibrdswzagfp.supabase.co}"
+          KEY="${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_k2qX6MNFfC0r5qFHPKwnpQ_Mg92JzbS}"
+
+          # /rest/v1/ exige service_role: con una key publishable el gateway
+          # responde 401 y nunca llega a Postgres, asi que no genera ninguna
+          # actividad. Consultar una tabla real si genera actividad en la DB,
+          # que es lo que evita la pausa por inactividad.
+          ENDPOINT="$URL/rest/v1/productos?select=id&limit=1"
+
+          CODE="000"
+          for attempt in 1 2 3 4 5; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+              -H "apikey: $KEY" \
+              -H "Authorization: Bearer $KEY" \
+              "$ENDPOINT") || CODE="000"
+
+            echo "Intento $attempt: HTTP $CODE"
+
+            if [ "$CODE" = "200" ]; then
+              echo "Base de datos activa."
+              exit 0
+            fi
+
+            sleep $((attempt * 15))
+          done
+
+          echo "::error::La base de datos no responde (ultimo HTTP $CODE)"
+          exit 1
+
+  heartbeat:
+    name: Commit de actividad
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # GitHub desactiva los cron de repos publicos tras 60 dias sin
+          # actividad, y las corridas del workflow no cuentan. Solo hacemos
+          # commit si el ultimo tiene mas de 30 dias, para no generar
+          # deploys de Vercel en cada corrida.
+          LAST=$(git log -1 --format=%ct)
+          NOW=$(date -u +%s)
+          DAYS=$(( (NOW - LAST) / 86400 ))
+
+          if [ "$DAYS" -lt 30 ]; then
+            echo "Ultimo commit hace $DAYS dias. No hace falta actividad."
+            exit 0
+          fi
+
+          echo "Ultimo commit hace $DAYS dias. Generando actividad."
+          git commit --allow-empty -m "chore: keepalive $(date -u +%Y-%m-%d)"
+          git push

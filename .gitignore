@@ -29,3 +29,9 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+.env.vercel.local
+
+# Tooling de agentes (OpenCode / skills)
+.opencode/
+.agents/
+skills-lock.json
